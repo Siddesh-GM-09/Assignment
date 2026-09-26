@@ -1,0 +1,1 @@
+export type Slot={time:string;label:string;availableMentors:number};export type Booking={id:string;status:string;parent:{name:string;email:string;timezone:string};mentor:{name:string;timezone:string};startUtc:string;parentTime:string;mentorTime:string;classLink:string};

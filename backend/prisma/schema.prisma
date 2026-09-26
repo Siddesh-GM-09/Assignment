@@ -1,0 +1,62 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Mentor {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  timezone  String
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  bookings  Booking[]
+}
+
+model Parent {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  timezone  String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  bookings  Booking[]
+}
+
+model Booking {
+  id                String         @id @default(cuid())
+  parentId          String
+  mentorId          String
+  scheduledStartUtc DateTime
+  scheduledEndUtc   DateTime
+  parentTimezone    String
+  mentorTimezone    String
+  status            String         @default("CONFIRMED")
+  classToken        String         @unique
+  classLink         String
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  parent            Parent         @relation(fields: [parentId], references: [id])
+  mentor            Mentor         @relation(fields: [mentorId], references: [id])
+  notifications     Notification[]
+
+  @@index([mentorId, scheduledStartUtc])
+  @@index([parentId, createdAt])
+}
+
+model Notification {
+  id             String   @id @default(cuid())
+  bookingId      String
+  recipientType  String
+  recipientEmail String
+  type           String
+  status         String   @default("QUEUED")
+  message        String
+  createdAt      DateTime @default(now())
+  booking        Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+}

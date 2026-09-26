@@ -1,0 +1,4 @@
+import {Request,Response,NextFunction} from 'express';
+import {AppError} from '../errors/AppError.js';
+export function asyncRoute(fn:(req:Request,res:Response,next:NextFunction)=>Promise<unknown>){return(req:Request,res:Response,next:NextFunction)=>{void fn(req,res,next).catch(next)}}
+export function errorHandler(error:unknown,_req:Request,res:Response,_next:NextFunction){if(error instanceof AppError)return res.status(error.status).json({success:false,error:{code:error.code,message:error.message}});console.error(JSON.stringify({event:'unexpected_error',message:error instanceof Error?error.message:'unknown'}));return res.status(500).json({success:false,error:{code:'INTERNAL_ERROR',message:'Something went wrong. Please try again.'}})}
