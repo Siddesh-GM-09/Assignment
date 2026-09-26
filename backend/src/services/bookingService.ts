@@ -18,7 +18,7 @@ export class BookingService {
       throw new AppError('DATE_OUT_OF_RANGE', `Choose a date within the next ${config.bookingWindowDays} days.`, 422);
     }
 
-    const slots = [];
+    const slots: Array<{ time: string; label: string; availableMentors: number }> = [];
     for (let hour = config.businessStartHour; hour + config.slotDurationMinutes / 60 <= config.businessEndHour; hour++) {
       const local = day.set({ hour, minute: 0, second: 0, millisecond: 0 });
       if (!local.isValid || local.toISODate() !== date) continue;
@@ -40,7 +40,7 @@ export class BookingService {
         },
       });
 
-      const withCapacity = [];
+      const withCapacity: any[] = [];
       for (const m of eligible) {
         const range = localDayRange(start, m.timezone);
         const n = await this.db.booking.count({
@@ -77,7 +77,7 @@ export class BookingService {
 
     try {
       return await this.db.$transaction(
-        async (tx) => {
+        async (tx: Prisma.TransactionClient) => {
           const overlap = await tx.booking.findMany({
             where: {
               status: 'CONFIRMED',
@@ -92,9 +92,9 @@ export class BookingService {
             orderBy: { id: 'asc' },
           });
 
-          const eligible = [];
+          const eligible: Array<{ mentor: any; count: number }> = [];
           for (const mentor of mentors) {
-            if (overlap.some((b) => b.mentorId === mentor.id)) continue;
+            if (overlap.some((b: any) => b.mentorId === mentor.id)) continue;
             const range = localDayRange(start, mentor.timezone);
             const count = await tx.booking.count({
               where: {
@@ -160,9 +160,9 @@ export class BookingService {
         },
         { timeout: 10000 }
       );
-    } catch (e) {
+    } catch (e: any) {
       if (e instanceof AppError) throw e;
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      if (e && typeof e === 'object' && e.code === 'P2002') {
         if (input.idempotencyKey) {
           const existing = await this.db.booking.findUnique({
             where: { idempotencyKey: input.idempotencyKey },
@@ -176,7 +176,7 @@ export class BookingService {
   }
 
   async get(id: string, db: PrismaClient | Prisma.TransactionClient = this.db) {
-    const b = await db.booking.findUnique({
+    const b = await (db as any).booking.findUnique({
       where: { id },
       include: { parent: true, mentor: true, notifications: true },
     });
@@ -192,7 +192,7 @@ export class BookingService {
       parentTime: formatInZone(b.scheduledStartUtc, b.parentTimezone),
       mentorTime: formatInZone(b.scheduledStartUtc, b.mentorTimezone),
       classLink: b.classLink,
-      notifications: b.notifications.map((n) => ({
+      notifications: b.notifications.map((n: any) => ({
         recipientType: n.recipientType,
         email: n.recipientEmail,
         status: n.status,
