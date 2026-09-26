@@ -40,7 +40,7 @@ export class BookingService {
         },
       });
 
-      const withCapacity: any[] = [];
+      let withCapacity = 0;
       for (const m of eligible) {
         const range = localDayRange(start, m.timezone);
         const n = await this.db.booking.count({
@@ -50,14 +50,14 @@ export class BookingService {
             scheduledStartUtc: { gte: range.start, lt: range.end },
           },
         });
-        if (n < 2) withCapacity.push(m);
+        if (n < 2) withCapacity += 1;
       }
 
-      if (withCapacity.length) {
+      if (withCapacity > 0) {
         slots.push({
           time: local.toFormat('HH:mm'),
           label: local.toFormat('h:mm a'),
-          availableMentors: withCapacity.length,
+          availableMentors: withCapacity,
         });
       }
     }
@@ -92,9 +92,9 @@ export class BookingService {
             orderBy: { id: 'asc' },
           });
 
-          const eligible: Array<{ mentor: any; count: number }> = [];
+          const eligible: Array<{ mentor: (typeof mentors)[number]; count: number }> = [];
           for (const mentor of mentors) {
-            if (overlap.some((b: any) => b.mentorId === mentor.id)) continue;
+            if (overlap.some((booking) => booking.mentorId === mentor.id)) continue;
             const range = localDayRange(start, mentor.timezone);
             const count = await tx.booking.count({
               where: {
@@ -160,9 +160,9 @@ export class BookingService {
         },
         { timeout: 10000 }
       );
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (e instanceof AppError) throw e;
-      if (e && typeof e === 'object' && e.code === 'P2002') {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         if (input.idempotencyKey) {
           const existing = await this.db.booking.findUnique({
             where: { idempotencyKey: input.idempotencyKey },
@@ -176,7 +176,7 @@ export class BookingService {
   }
 
   async get(id: string, db: PrismaClient | Prisma.TransactionClient = this.db) {
-    const b = await (db as any).booking.findUnique({
+    const b = await db.booking.findUnique({
       where: { id },
       include: { parent: true, mentor: true, notifications: true },
     });
@@ -192,7 +192,7 @@ export class BookingService {
       parentTime: formatInZone(b.scheduledStartUtc, b.parentTimezone),
       mentorTime: formatInZone(b.scheduledStartUtc, b.mentorTimezone),
       classLink: b.classLink,
-      notifications: b.notifications.map((n: any) => ({
+      notifications: b.notifications.map((n) => ({
         recipientType: n.recipientType,
         email: n.recipientEmail,
         status: n.status,
