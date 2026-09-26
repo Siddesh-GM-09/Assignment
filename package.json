@@ -10,7 +10,7 @@
     "dev:backend": "npm --workspace backend run dev",
     "dev:frontend": "npm --workspace frontend run dev",
     "build": "npm run build --workspace backend && npm run build --workspace frontend",
-    "test": "npm test --workspace backend",
+    "test": "npm test --workspace backend && npm test --workspace frontend",
     "lint": "npm run lint --workspace backend && npm run lint --workspace frontend"
   },
   "devDependencies": {

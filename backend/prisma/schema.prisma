@@ -16,6 +16,17 @@ model Mentor {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   bookings  Booking[]
+  subjects  MentorSubject[]
+}
+
+model MentorSubject {
+  id       String @id @default(cuid())
+  mentorId String
+  subject  String
+  mentor   Mentor @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+
+  @@unique([mentorId, subject])
+  @@index([subject])
 }
 
 model Parent {
@@ -37,17 +48,36 @@ model Booking {
   parentTimezone    String
   mentorTimezone    String
   status            String         @default("CONFIRMED")
+  subject           String         @default("Coding")
+  meetingProvider   String         @default("INTERNAL_CLASSROOM")
   classToken        String         @unique
+  manageToken       String?        @unique
   idempotencyKey    String?        @unique
   classLink         String
+  cancelledAt       DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   parent            Parent         @relation(fields: [parentId], references: [id])
   mentor            Mentor         @relation(fields: [mentorId], references: [id])
   notifications     Notification[]
+  rescheduleHistory BookingReschedule[]
 
   @@index([mentorId, scheduledStartUtc])
   @@index([parentId, createdAt])
+  @@index([status, scheduledStartUtc])
+}
+
+model BookingReschedule {
+  id                 String   @id @default(cuid())
+  bookingId          String
+  previousStartUtc   DateTime
+  nextStartUtc       DateTime
+  previousMentorName String
+  nextMentorName     String
+  changedAt          DateTime @default(now())
+  booking            Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, changedAt])
 }
 
 model Notification {

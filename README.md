@@ -1,160 +1,116 @@
-# Codeyoung Trial Class Booking System
+# CodeYoung Trial Class Booking
 
-## Project overview
+A full-stack trial-class scheduler for parents and mentors in different timezones. Parents choose a course and local time, the API assigns an eligible mentor, and both receive a booking-specific classroom reference by email.
 
-A customer-facing booking experience for a free, one-to-one trial class. Parents choose a local time and timezone; the API checks capacity, assigns one of ten mentors, saves the UTC appointment, records dummy notifications, and issues an opaque demo-class link.
+## What the app includes
 
-## Problem statement
+- Responsive parent booking form with detected timezone, course selection, live availability, and a backend-ranked recommended time.
+- UTC-backed booking times with parent and mentor timezone comparison, including local date changes and daylight-saving transitions.
+- Ten fictional demo mentors with seeded course assignments and a limit of two confirmed classes per mentor's local calendar day.
+- Transactional booking and rescheduling, idempotency keys, private booking-management tokens, cancellation, and notification records.
+- A unique private CodeYoung classroom waiting-room URL for each booking, plus an `.ics` calendar download.
+- Responsive waiting room with status, mentor, course, local times, and a UTC-based countdown.
+- SMTP confirmation, reschedule, and cancellation emails for parents and mentors. A parent-only management link is included in parent emails.
+- Authenticated `/admin` operations dashboard with capacity, schedule, database-backed analytics, email delivery status, mentor controls, and booking cancellation.
+- Database readiness health endpoint and tests for assignment, conflicts, rescheduling, cancellation, timezone rules, recommendations, calendar export, and admin authorization.
 
-Schedule trial classes across parent and mentor timezones without mentor overlaps or exceeding two sessions per mentor's local calendar day. Availability can change between browsing and confirming, so the booking API is authoritative.
+## Technology and architecture
 
-## Features
+Node.js, TypeScript, Express, Prisma, SQLite, Luxon, Zod, Vitest, React, Vite, React Router, and TanStack Query. Backend flow is Routes → Controllers → `BookingService` → Prisma. The service owns availability, UTC conversion, mentor assignment, transaction boundaries, private booking capabilities, and notifications. SMTP delivery happens only after the booking transaction commits; a mail failure does not roll back a class.
 
-- Responsive booking journey with automatic browser-timezone suggestion and explicit timezone choice.
-- Server-generated appointment slots, validation, deterministic mentor assignment, and useful conflict responses.
-- Secure random class token and working demo-class details page.
-- Parent and mentor notification records (no email is sent).
-- Demo Admin View with mentor, capacity, and booking information.
-- Ten fictional seeded mentors, with six in India and four in US/Europe zones.
-- Vitest coverage for timezone/DST behavior and database booking flows.
+## Booking and timezone behavior
 
-## Architecture
+The browser submits a local date, local time, IANA timezone, course, and idempotency key. The API validates the actual wall time and configured business window, converts it to UTC, and checks overlap and mentor-local daily capacity inside a transaction. A mentor is assigned only if active, assigned to the requested demo course, free for the full slot, and below two classes on that mentor's local date. Concurrent requests are checked again by the API rather than trusting the displayed availability.
 
-The backend follows Routes → Controllers → Services → Prisma. `BookingService` owns slot availability, UTC conversion, capacity selection, booking transaction, notifications, and booking view shaping. Controllers validate Zod input and map to JSON. Central error middleware returns stable public error codes and hides unexpected internals. The React app uses React Router for pages and TanStack Query for server state.
+The recommendation endpoint ranks real available slots using current mentor load, number of available mentors, and an after-school time preference. It returns human-readable reasons and available alternatives; it does not expose a scoring value. Parent and mentor local times are formatted from the same UTC instant by Luxon.
 
-## Technology choices
+## Private classroom and meeting provider
 
-Node.js, TypeScript, Express, Prisma, SQLite, Zod, Luxon, Vitest, React, Vite, React Router, TanStack Query, Helmet, and express-rate-limit. SQLite keeps local setup simple; the database boundary is Prisma so PostgreSQL can be adopted later.
+Each booking stores its own random classroom token, unique classroom URL (`classLink`), and `meetingProvider` value. The current `InternalClassroomProvider` creates a private waiting-room route at `/class/:token`. The classroom API uses the 256-bit random token as a bearer capability and returns only classroom details; it does not return parent email or booking-management credentials. Booking detail, rescheduling, and parent cancellation require a separate random management token. Admin routes require an authenticated admin session.
 
-## Folder structure
+Each booking has its own classroom/meeting reference. The current development implementation uses the `INTERNAL_CLASSROOM` provider abstraction; real Google Meet generation requires Google API credentials and integration. The current room is a waiting room and **does not provide live audio or video**. The old shared `GOOGLE_MEET_LINK` setting is no longer used by the booking or email flow. The provider interface is the integration point for a future real meeting provider.
 
-```text
-backend/
-  prisma/{schema.prisma,seed.ts}
-  src/{config,controllers,errors,middleware,services,utils,validators}/
-  tests/{unit,integration}/
-frontend/
-  src/{pages,components,services,styles,types,utils}/
-```
+## Email behavior
 
-## Database schema explanation
+Set SMTP values to send branded, mobile-friendly confirmation, reschedule, and cancellation messages. User-provided names and other inserted text are HTML-escaped. Emails include the course, booking reference, each recipient's local time, the unique private classroom link, and a parent-only management link. Email failures are recorded as `FAILED` notification states after the database change commits. Tests suppress external email delivery.
 
-`Mentor` stores active status and an IANA timezone. `Parent` stores contact details and preferred timezone. `Booking` stores UTC start/end instants and both timezone identifiers, status, generated token, and class URL. `Notification` records recipient, type, message, and delivery state. Relations and indexes support mentor schedule lookup; notifications cascade when a booking is removed. Times are real `DateTime` instants, never local wall-clock strings.
+## Admin and analytics
 
-## Booking flow
+`/admin` uses a single configured admin account, an eight-hour signed `HttpOnly` cookie, exact-origin credentialed CORS, and a login rate limit. All dashboard and control endpoints check that session. The dashboard shows mentor-local capacity, upcoming classes, recent booking activity, totals by booking status, course interest, popular parent-local start hours, weekly/monthly counts, and cancellation rate from database records. Empty analytics show “No booking data yet.” Completed totals are derived from confirmed classes whose end time has passed; the stored booking status remains `CONFIRMED`.
 
-The browser fetches slots for the selected date and IANA timezone. On confirmation it sends parent details and a local date/time. The API validates the request, converts that wall time with Luxon, checks eligible active mentors, orders by same-local-day load then mentor ID, and atomically writes the booking and two notification records. The response includes parent- and mentor-local rendered time. If a slot fills after display, the API responds with a friendly `409 NO_MENTOR_AVAILABLE`; the client refreshes slots on the next query interaction and invites another choice.
+Admin can enable or disable mentors and cancel confirmed bookings. A parent can change or cancel a booking through the management token delivered in the confirmation email. Rescheduling checks the new slot and mentor capacity within a transaction, records a reschedule history row, preserves the per-booking classroom, and sends updated notifications after commit.
 
-## Mentor assignment algorithm
+## Health endpoint
 
-Candidates are active mentors without a confirmed appointment overlapping `[start,end)`. For each candidate, the service derives the UTC boundaries of the appointment's day in that mentor's IANA zone, counts confirmed bookings in those boundaries, and drops mentors already at two. Remaining mentors are sorted by ascending daily count and stable mentor ID. Back-to-back sessions are allowed because overlap uses strict `<`/`>` boundaries. A lack of candidates yields `NO_MENTOR_AVAILABLE`.
-
-## Timezone strategy
-
-The UI submits local date/time plus IANA zone, never an offset. Luxon constructs the zoned local datetime and converts it to UTC for storage. Responses format the same instant independently in parent and mentor zones. `Intl.supportedValuesOf('timeZone')` backs the timezone API. The current UI offers common US, UK, EU, and India zones; API accepts any valid IANA zone.
-
-## DST handling
-
-Luxon/IANA rules provide seasonal offsets; there is no manual offset arithmetic. Invalid or normalized nonexistent wall times are rejected. The fall-back repeated hour follows Luxon's earlier-offset disambiguation. This assignment's hourly slot grid starts on the hour, so it does not expose ambiguous half-hour fall-back entries. Tests cover winter/summer New York conversion and spring/fall transition cases.
-
-## Mentor daily limit
-
-Capacity counts use `[local start of day, next local start of day)` converted to UTC for each mentor. That handles timezone and DST boundaries correctly, including when the mentor's calendar date differs from UTC. Limit is two confirmed classes for that mentor-local date.
-
-## Concurrency considerations
-
-Candidate inspection and booking insertion run in a Prisma interactive transaction; SQLite serializes writes and may surface lock contention under concurrent writers. This avoids treating a stale client slot list as authoritative, but SQLite does not provide PostgreSQL-style row locks, and this small demo does not claim high-scale locking guarantees. There is no database exclusion constraint on time ranges. An optional unique idempotency key is stored with the booking and a retry replays the original result. For production/high concurrency, move to PostgreSQL and use serializable transactions or a per-mentor advisory/row lock plus a database exclusion constraint on confirmed time ranges; retry serialization conflicts.
-
-## Error handling
-
-Validation errors use 422, missing records use 404, and capacity conflicts use 409. Unexpected errors are logged server-side and return a generic 500. Responses contain `{success,data}` or `{success:false,error:{code,message}}` and do not expose stack traces.
-
-## Validation
-
-Zod validates parent name/email, timezone presence, date format, and time format. Luxon validates supported zones and real local times; past appointments are rejected. Frontend browser validation improves usability but backend validation is authoritative.
-
-## Testing
-
-Run the local database setup once, then run `npm test`. Unit tests cover timezone conversion, DST, rendering, local mentor-day boundaries, and nonexistent local times. Integration tests copy `backend/prisma/dev.db` into an isolated `backend/prisma/test.db`; test cleanup affects only that copy. They cover successful assignment, idempotent retry, notification records, booking/class retrieval, unknown IDs/tokens, and mentor-local daily capacity.
-
-## API documentation
-
-All endpoints are prefixed by `/api`.
-
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/health` | Service health |
-| GET | `/timezones` | IANA timezone list |
-| GET | `/slots?date=YYYY-MM-DD&timezone=Area/City` | Available local starts |
-| POST | `/bookings` | Create booking; JSON `{name,email,timezone,date,time,idempotencyKey?}` |
-| GET | `/bookings/:id` | Booking details |
-| GET | `/bookings/:id/class` | Booking class details |
-| GET | `/class/:token` | Resolve opaque demo class token |
-| GET | `/admin` | Mentor utilization and bookings |
+`GET /api/health` performs a database query and returns status, timestamp, database status, and app version. It returns HTTP 503 with a degraded state if the database is unavailable. It does not expose environment values, credentials, or tokens.
 
 ## Local setup
 
-Requirements: Node.js 20+ and npm. From repository root:
+Requirements: Node.js 20+ and npm. In PowerShell from the repository root:
 
 ```powershell
 Copy-Item backend/.env.example backend/.env
 npm install
-npm --workspace backend exec prisma generate
-npm --workspace backend exec prisma db push
-npm --workspace backend exec tsx prisma/seed.ts
+npm --workspace backend exec -- prisma generate --schema prisma/schema.prisma
+npm --workspace backend exec -- prisma db push --schema prisma/schema.prisma
+npm --workspace backend exec -- tsx prisma/seed.ts
 npm run dev
 ```
 
-Open `http://localhost:5173`. API defaults to `http://localhost:3001`.
+`prisma db push` applies the additive schema updates to the existing SQLite database and preserves existing records. Run it after pulling schema changes. The seed script is safe to rerun: it updates the ten named demo mentors without resetting their active/inactive state, and upserts demo course assignments.
+
+Open `http://localhost:5173`. The API listens at `http://localhost:3001` by default. The frontend can override its API origin with `VITE_API_URL`.
 
 ## Environment variables
 
-See [`.env.example`](.env.example). Backend reads `backend/.env`; `DATABASE_URL` is Prisma's SQLite URL. `PORT`, `FRONTEND_URL`, `SLOT_DURATION_MINUTES`, `BOOKING_WINDOW_DAYS`, `BUSINESS_START_HOUR`, and `BUSINESS_END_HOUR` configure local operation. `PUBLIC_APP_URL` optionally overrides generated class-link origin. Never commit `.env`.
+Backend reads `backend/.env`; the matching starter is [backend/.env.example](backend/.env.example).
 
-## Database setup
+- `DATABASE_URL`: Prisma SQLite URL, default `file:./dev.db`.
+- `PORT`, `FRONTEND_URL`: API port and allowed frontend origin.
+- `SLOT_DURATION_MINUTES`, `BOOKING_WINDOW_DAYS`, `BUSINESS_START_HOUR`, `BUSINESS_END_HOUR`: slot and booking window settings.
+- `PUBLIC_APP_URL`: public frontend origin used when generating each private classroom URL.
+- `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`: single admin login. Set an email, a password of at least 12 characters, and a random session secret of at least 32 characters. For a random secret, run `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` and paste its output into `ADMIN_SESSION_SECRET`. Restart the backend after changing these settings. Example files do not include default admin credentials.
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, optional `SMTP_USER` and `SMTP_PASSWORD`, and `MAIL_FROM`: outbound notification email.
 
-Prisma schema is `backend/prisma/schema.prisma`. `prisma db push` creates the local SQLite schema without requiring Docker. To rebuild a disposable local database, remove `backend/prisma/dev.db` and repeat setup.
+Never commit `backend/.env`. No Google Meet URL or credential is required by the current internal classroom provider.
 
-## Seed data
+## API reference
 
-The seed command upserts exactly ten fictional mentors (`mentor1@example.com` through `mentor10@example.com`); it is safe to rerun. Six use Asia/Kolkata and others use New York, London, Los Angeles, and Berlin. No sensitive data is included.
+All routes use the `/api` prefix.
 
-## How to run backend
+| Method | Path | Purpose |
+| --- | --- | --- |
+| GET | `/health` | Database-aware readiness status |
+| GET | `/timezones` | IANA timezone list |
+| GET | `/slots?date=YYYY-MM-DD&timezone=Area/City&subject=Coding` | Available parent-local slots and eligible mentor counts |
+| GET | `/recommendations?date=YYYY-MM-DD&timezone=Area/City&subject=Coding` | Ranked recommendation and alternatives |
+| POST | `/bookings` | Create booking; body includes name, email, timezone, date, time, subject, idempotency key |
+| GET | `/bookings/:id?token=...` | Private booking details; management token required |
+| POST | `/bookings/:id/reschedule` | Change date/time; management token required |
+| POST | `/bookings/:id/cancel` | Parent cancellation; management token required |
+| GET | `/class/:token` | Private classroom waiting-room details |
+| GET | `/class/:token/calendar.ics` | Download the booking's calendar event |
+| GET | `/admin/session` | Report admin configuration and session state |
+| POST | `/admin/login` | Create admin session |
+| POST | `/admin/logout` | Clear admin session |
+| GET | `/admin` | Operations dashboard data; admin session required |
+| PATCH | `/admin/mentors/:id` | Enable or disable a mentor; admin session required |
+| POST | `/admin/bookings/:id/cancel` | Admin cancellation; admin session required |
 
-`npm run dev:backend` starts the API in watch mode. `npm --workspace backend run build` builds TypeScript; `npm --workspace backend start` runs compiled output.
+Responses use `{success,data}` or `{success:false,error:{code,message}}`. Conflict responses may include available alternative slots.
 
-## How to run frontend
+## Tests and builds
 
-`npm run dev:frontend` starts Vite. `VITE_API_URL` can override the API base URL (default `http://localhost:3001/api`). `npm --workspace frontend run build` creates the static production bundle.
+Run after local database setup:
 
-## How to run tests
+```powershell
+npm test
+npm run lint
+npm run build
+```
 
-After local database setup, `npm test` runs the backend Vitest suite. `npm run build` builds both apps. `npm run lint` runs each workspace's lint command.
+Integration tests copy `backend/prisma/dev.db` to an isolated `backend/prisma/test.db`. Test cleanup affects only that copy. Tests use test-only admin credentials from Vitest configuration and never send emails.
 
-## Example booking flow
+## Seed data and limitations
 
-Start services, open the app, provide a name/email, select an offered timezone and a date within the booking window, select an available time, and confirm. Inspect both local appointment times and open the class link. Visit **Demo admin** to see the new booking and mentor utilization.
-
-## Edge cases considered
-
-No mentor, inactive mentor, overlaps, strict half-open appointment boundaries (back-to-back allowed), two per mentor-local day, past dates/times, invalid zones, spring DST gaps, fall repeated hour, parent/mentor date difference, opaque invalid links, invalid booking IDs, retry-friendly conflict behavior, duplicate click loading state, and API failure states. Multiple legitimate bookings per parent are allowed.
-
-## Scope and Deliberate Non-Goals
-
-No real email, authentication, payment, video conferencing, calendar integrations, parent/mentor accounts, or deployment stack. Notification rows stand in for a provider adapter; class links lead to a demo page rather than a video call. Admin view is intentionally unauthenticated for evaluator demonstration.
-
-## Production improvements
-
-Add authentication/authorization, PostgreSQL migrations and range exclusion constraints, email and video provider adapters, cancellation/rescheduling flows, audit retention policies, richer observability/metrics, accessibility audit, and deployment secrets/HTTPS controls. The demo rate limit and CORS defaults are starting points, not a production security claim.
-
-## Trade-offs
-
-Hourly local starts keep the product simple. The app currently provides an explicit common-zone selector instead of an exhaustive searchable picker. SQLite is convenient for review and single-instance demo use but is not a high-throughput scheduler database. Notifications are recorded in the booking transaction rather than sent asynchronously.
-
-## Assumptions
-
-Business hours are local to the parent-selected timezone. Slots begin on the hour and last the configured duration. All mentors can consider every offered parent slot; mentor-zone business-hours restrictions were not specified. A mentor's daily cap uses the mentor's local date. Cancelled bookings no longer consume capacity.
-
-## Demo credentials
-
-No credentials are required. Admin is openly accessible for this assignment only.
+Mentor names, course assignments, and `example.com` addresses are fictional demo records. The seed script does not create appointments or send email; without real booking activity, analytics correctly show no data. This app has a single admin account and does not include parent accounts, student profiles, payment, live video, Google Calendar API, or automatic email retries. A class token is a private bearer link; anyone with that link can view the room's limited class details. SQLite is intended for local/single-instance review rather than high-concurrency production deployment.
