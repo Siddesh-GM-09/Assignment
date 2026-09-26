@@ -38,6 +38,7 @@ model Booking {
   mentorTimezone    String
   status            String         @default("CONFIRMED")
   classToken        String         @unique
+  idempotencyKey    String?        @unique
   classLink         String
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt

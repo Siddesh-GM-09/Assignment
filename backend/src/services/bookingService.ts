@@ -71,7 +71,7 @@ export class BookingService {
 
     const end = new Date(start.getTime() + config.slotDurationMinutes * 60000);
     if (input.idempotencyKey) {
-      const old = await this.db.booking.findFirst({ where: { classToken: input.idempotencyKey } });
+      const old = await this.db.booking.findUnique({ where: { idempotencyKey: input.idempotencyKey } });
       if (old) return this.get(old.id);
     }
 
@@ -131,6 +131,7 @@ export class BookingService {
               mentorTimezone: mentor.timezone,
               status: 'CONFIRMED',
               classToken: token,
+              idempotencyKey: input.idempotencyKey,
               classLink: `${origin}/class/${token}`,
             },
           });
@@ -162,6 +163,12 @@ export class BookingService {
     } catch (e) {
       if (e instanceof AppError) throw e;
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        if (input.idempotencyKey) {
+          const existing = await this.db.booking.findUnique({
+            where: { idempotencyKey: input.idempotencyKey },
+          });
+          if (existing) return this.get(existing.id);
+        }
         throw new AppError('BOOKING_CONFLICT', 'This request was already processed or the slot changed. Refresh available times.', 409);
       }
       throw e;

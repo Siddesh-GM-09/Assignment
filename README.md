@@ -63,7 +63,7 @@ Capacity counts use `[local start of day, next local start of day)` converted to
 
 ## Concurrency considerations
 
-Candidate inspection and booking insertion run in a Prisma interactive transaction; SQLite serializes writes and may surface lock contention under concurrent writers. This avoids treating a stale client slot list as authoritative, but SQLite does not provide PostgreSQL-style row locks, and this small demo does not claim high-scale locking guarantees. There is no database exclusion constraint on time ranges. For production/high concurrency, move to PostgreSQL and use serializable transactions or a per-mentor advisory/row lock plus a database exclusion constraint on confirmed time ranges; retry serialization conflicts. The unique opaque class token also protects token identity.
+Candidate inspection and booking insertion run in a Prisma interactive transaction; SQLite serializes writes and may surface lock contention under concurrent writers. This avoids treating a stale client slot list as authoritative, but SQLite does not provide PostgreSQL-style row locks, and this small demo does not claim high-scale locking guarantees. There is no database exclusion constraint on time ranges. An optional unique idempotency key is stored with the booking and a retry replays the original result. For production/high concurrency, move to PostgreSQL and use serializable transactions or a per-mentor advisory/row lock plus a database exclusion constraint on confirmed time ranges; retry serialization conflicts.
 
 ## Error handling
 
@@ -75,7 +75,7 @@ Zod validates parent name/email, timezone presence, date format, and time format
 
 ## Testing
 
-Run `npm test`. Unit tests cover timezone conversion, DST, rendering, local mentor-day boundaries, and nonexistent local times. Integration tests use the Prisma SQLite database for successful assignment, notification records, booking/class retrieval, unknown IDs/tokens, and mentor-local daily capacity. The integration suite expects migrations and seed data to have been created first.
+Run the local database setup once, then run `npm test`. Unit tests cover timezone conversion, DST, rendering, local mentor-day boundaries, and nonexistent local times. Integration tests copy `backend/prisma/dev.db` into an isolated `backend/prisma/test.db`; test cleanup affects only that copy. They cover successful assignment, idempotent retry, notification records, booking/class retrieval, unknown IDs/tokens, and mentor-local daily capacity.
 
 ## API documentation
 
@@ -145,7 +145,7 @@ No real email, authentication, payment, video conferencing, calendar integration
 
 ## Production improvements
 
-Add authentication/authorization, PostgreSQL migrations and range exclusion constraints, durable idempotency-key storage, email and video provider adapters, cancellation/rescheduling flows, audit retention policies, richer observability/metrics, accessibility audit, and deployment secrets/HTTPS controls. The demo rate limit and CORS defaults are starting points, not a production security claim.
+Add authentication/authorization, PostgreSQL migrations and range exclusion constraints, email and video provider adapters, cancellation/rescheduling flows, audit retention policies, richer observability/metrics, accessibility audit, and deployment secrets/HTTPS controls. The demo rate limit and CORS defaults are starting points, not a production security claim.
 
 ## Trade-offs
 
